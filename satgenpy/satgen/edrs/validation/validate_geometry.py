@@ -7,12 +7,11 @@ distance_tools) against:
 
   [ref]      independent propagation: python-sgp4 + validation/geometry.py
   [gmat]     optional: GMAT ReportFile (numerical propagation, see make_gmat_script.py)
-  [baseline] optional: external contact windows (e.g. ISRO baseline from the paper)
 
 Usage (from satgenpy/satgen/edrs):
     python -m validation.validate_geometry --duration 86400 --step 10
     python -m validation.validate_geometry --duration 86400 --step 10 \
-        --gmat validation/gmat/report_edrs.txt --baseline validation/isro_baseline.csv
+        --gmat validation/gmat/report_edrs.txt
 
 Outputs (in --out, default validation/results):
     windows_<source>.csv, window_comparison.csv, ranges.csv, report.md, geometry_validation.png
@@ -84,16 +83,6 @@ def read_gmat_report(path, n_sat):
     return t, r
 
 
-def read_baseline(path):
-    """CSV with columns: pair (e.g. '0-2'), start_s, end_s  [optional: range_min_km, range_max_km]"""
-    out = {}
-    with open(path) as f:
-        for row in csv.DictReader(f):
-            a, b = (int(x) for x in row["pair"].split("-"))
-            out.setdefault((a, b), []).append((float(row["start_s"]), float(row["end_s"])))
-    return out
-
-
 def summarize(rows, tol_edge_s):
     m = [r for r in rows if r["status"] == "matched"]
     missed = sum(r["status"] == "MISSED" for r in rows)
@@ -120,7 +109,6 @@ def main():
     ap.add_argument("--tol-range-km-gmat", type=float, default=10.0)
     ap.add_argument("--tol-edge-s-gmat", type=float, default=30.0)
     ap.add_argument("--gmat", default=None, help="GMAT ReportFile (see make_gmat_script.py)")
-    ap.add_argument("--baseline", default=None, help="external windows CSV (e.g. ISRO baseline)")
     ap.add_argument("--out", default=os.path.join(HERE, "results"))
     args = ap.parse_args()
     tol_edge = args.tol_edge_s if args.tol_edge_s is not None else args.step
@@ -167,8 +155,6 @@ def main():
         tg, rg = read_gmat_report(args.gmat, n_sat)
         gmat = (tg, rg)
 
-    baseline = read_baseline(args.baseline) if args.baseline else None
-
     # ---- compare
     win_rows, cmp_rows, summary = [], [], []
     rng_csv = open(os.path.join(args.out, "ranges.csv"), "w", newline="")
@@ -213,16 +199,6 @@ def main():
             for r_ in rows:
                 cmp_rows.append(dict(pair=name, test="gmat", **r_))
 
-        if baseline is not None and (a, b) in baseline:
-            w_b = baseline[(a, b)]
-            sources["baseline"] = w_b
-            rows = G.match_windows(w_ref, w_b)
-            s = summarize(rows, args.tol_edge_s_gmat)
-            s.update(pair=name, kind=kind, test="baseline vs sgp4", max_range_err_km=np.nan, range_ok=True)
-            summary.append(s)
-            for r_ in rows:
-                cmp_rows.append(dict(pair=name, test="baseline", **r_))
-
         for src, ws in sources.items():
             for (s0, s1) in ws:
                 i0, i1 = np.searchsorted(t, s0), np.searchsorted(t, s1, side="right")
@@ -254,7 +230,7 @@ def main():
              f"theta_LEO(zenith) < {cfg.theta_leo_max_deg} deg, theta_GEO(nadir) < {cfg.theta_geo_max_deg} deg, "
              f"max range = {cfg.max_range_m/1e3:.0f} km",
              f"- Tolerances: range {args.tol_range_km} km / edge {tol_edge} s (Hypatia); "
-             f"range {args.tol_range_km_gmat} km / edge {args.tol_edge_s_gmat} s (GMAT, baseline)", "",
+             f"range {args.tol_range_km_gmat} km / edge {args.tol_edge_s_gmat} s (GMAT)", "",
              "| pair | kind | test | ref windows | matched | missed | spurious | worst edge Δ [s] | max range Δ [km] | PASS |",
              "|---|---|---|---|---|---|---|---|---|---|"]
     all_ok = True
