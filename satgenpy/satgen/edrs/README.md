@@ -15,6 +15,7 @@ edrs/
 │   ├── txt_reader.py, verifications.py  ← small helpers
 │   └── output/             ← everything main.py produces (input for ns-3)
 ├── validation/             ← Step 2: checks the geometry against SGP4 and GMAT
+├── analysis/               ← routes of the EO data, QoS, check of the ns-3 results
 └── viz/                    ← 3D viewer of Earth + satellites + links
 ```
 
@@ -191,6 +192,52 @@ time step, routes packets according to `fstate_*.txt`. So **a link only carries 
   source ground station stands in for the Sentinel payload and gets the Sentinel payload rate. The real
   Sentinel uplink is 64 kbit/s (S-band telecommand); using it would cap every flow at 64 kbit/s.
 - **Generated files are not committed** (`src/output/.gitignore`): they are rebuilt by `main.py`.
+
+---
+
+## Routes, QoS and checking ns-3 (`analysis/routes.py`)
+
+After `python main.py` (and ns-3), in the **Ubuntu (WSL) terminal**, from `satgenpy/satgen/edrs`:
+
+```bash
+python -m analysis.routes
+explorer.exe analysis/results
+```
+
+It produces `analysis/results/summary.md`, `routes_timeline.png`, one `routes_<satellite>.csv` per EO
+satellite and, if ns-3 ran, `ping_check.csv`.
+
+**1. Route of the data leaving each EO satellite.** At every time step it follows the next hops in
+`fstate_*.txt` from each Sentinel to every ground station and keeps the shortest path, e.g.
+`Sentinel-1 0 -> EDRS 6 -> Weilheim`. Each route is labelled `direct` (X-band to a ground station),
+`via GEO` (laser to EDRS, Ka-band down), `via LEO` or `via LEO+GEO` (first a laser hop to another
+Sentinel), or `no route`. Hypatia always picks the path with the **shortest total distance**, so a direct
+downlink (~1,000–2,500 km) wins whenever a ground station is in view; otherwise EDRS (~75,000–80,000 km).
+
+**2. QoS per EO satellite** (table in `summary.md`):
+
+| Metric | Meaning |
+|---|---|
+| availability | % of time the satellite has *some* route to the ground |
+| direct / via GEO / via LEO / via LEO+GEO | % of time on each kind of route |
+| one-way delay | propagation time along the route (distance / c). Via EDRS ≈ 250–280 ms; direct ≈ 3–8 ms |
+| route changes | number of hand-overs (route changes); each one can cost packets |
+| longest outage | longest continuous time without route |
+
+Throughput is not measured yet: that needs TCP flows or UDP bursts in ns-3 (see the template).
+
+**3. Checking that ns-3 is correct.** ns-3 sends pings between ground stations (`config.ns3`). For every
+received ping the script computes the latency it *should* have: the fstate route at that time, with the
+satellite positions from the same TLEs, divided by the speed of light. Then:
+- `max |Δ one-way|` must be ≪ 1 ms (only transmission/processing time is missing from the geometry);
+- pings should only be lost when there is no route (a few at route changes are normal);
+- no ping should arrive when the tables say "no route".
+
+`ns-3 check: PASS` means ns-3 delivers packets along the routes Hypatia computed, with the right delays.
+
+Note: Hypatia/ns-3 can only send traffic between **ground stations**, so ns-3 cannot yet send packets
+*from* a Sentinel. The EO routes in point 1 come from the forwarding tables, which do contain the
+satellite → ground routes that ns-3 would use.
 
 ---
 
