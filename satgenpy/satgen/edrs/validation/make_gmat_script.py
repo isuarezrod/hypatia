@@ -73,7 +73,8 @@ def main():
     ap.add_argument("--tle", default=os.path.join(EDRS, "src", "tles", "tle.txt"))
     ap.add_argument("--duration", type=float, default=86400.0)
     ap.add_argument("--step", type=float, default=10.0)
-    ap.add_argument("--degree", type=int, default=8, help="Earth gravity degree/order (JGM-3)")
+    ap.add_argument("--degree", type=int, default=8, help="Earth gravity degree (JGM-3)")
+    ap.add_argument("--order", type=int, default=None, help="Earth gravity order (default = degree; 0 = zonal only)")
     ap.add_argument("--third-body", action="store_true", help="add Sun & Moon point masses")
     ap.add_argument("--out", default=os.path.join(HERE, "gmat"))
     args = ap.parse_args()
@@ -116,7 +117,7 @@ def main():
           "FM.Drag = None;",
           "FM.SRP = Off;",
           f"FM.GravityField.Earth.Degree = {args.degree};",
-          f"FM.GravityField.Earth.Order = {args.degree};",
+          f"FM.GravityField.Earth.Order = {args.degree if args.order is None else args.order};",
           "FM.GravityField.Earth.PotentialFile = 'JGM3.cof';",
           "FM.ErrorControl = None;       % fixed step -> uniform report rows",
           "",
