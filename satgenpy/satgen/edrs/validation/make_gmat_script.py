@@ -27,6 +27,11 @@ for p in (SATGENPY, EDRS):
         sys.path.insert(0, p)
 
 from astropy import units as u                                            # noqa: E402
+from astropy.utils import iers                                            # noqa: E402
+# Use astropy's bundled Earth-orientation data instead of downloading it (often blocked by
+# corporate/university proxies). Any small frame error is a common rotation of ALL satellites,
+# so inter-satellite ranges and visibility are unaffected.
+iers.conf.auto_download = False
 from astropy.coordinates import TEME, GCRS, CartesianRepresentation, CartesianDifferential  # noqa: E402
 from sgp4.api import Satrec, jday                                         # noqa: E402
 
