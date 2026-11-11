@@ -1,69 +1,57 @@
-from satgen.distance_tools.distance_tools import distance_m_between_satellites
 import numpy as np
 from satgen.edrs.config import geometric, visibility
-# Analysis based on followig paper:
+# Analysis based on following paper:
 # LEO–GEO visibility. Satellite Communications and Networks. Wiley. https://doi.org/10.1002/sat.70066
+#
+# UNITS: r_leo, r_geo, r_a, r_b are geocentric position vectors in METRES (as returned by config.radius()).
+#        config values are given in km and are converted here.
+
+_RE_M = geometric.Re * 1e3          # km -> m
+_H_GRAZE_M = geometric.ATM * 1e3    # km -> m
+_MAX_RANGE_M = visibility.max_range * 1e3
+
 
 def angle(a, b):
-    cos = np.dot(a, b)/ (np.linalg.norm(a)*np.linalg.norm(b))
-    return np.rad2deg(np.arccos(cos))
+    """Angle between two vectors in degrees."""
+    cos = np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+    return np.rad2deg(np.arccos(np.clip(cos, -1.0, 1.0)))
+
+
+def los_min_distance(r1, r2):
+    """Minimum distance from Earth's centre to the segment r1 -> r2 (m)."""
+    d = r2 - r1                                   # r1 -> r2
+    t = -np.dot(r1, d) / np.dot(d, d)             # closest point P(t) = r1 + t d
+    t = min(max(t, 0.0), 1.0)                     # clamp to the segment
+    return np.linalg.norm(r1 + t * d)
+
 
 def contact_leo_geo(r_leo, r_geo):
+    """True if the LEO-GEO link is geometrically feasible."""
+    d = r_geo - r_leo                             # LEO -> GEO
 
-    # Returns True if there is contact LEO - GEO
-    theta_geo_max = visibility.theta_geo_max
-    theta_leo_max = visibility.theta_leo_max
-    max_range = visibility.max_range
-
-    # 1. Earth block
-    d = r_leo - r_geo # distance from LEO to GEO 
-    t = -np.dot(r_leo, d)/np.dot(d,d)
-    if t < 0:
-        d_min = r_leo
-    elif t > 1:
-        d_min = r_geo
-    else:
-        d_min = np.cross(r_leo, r_geo)/np.dot(d,d)
-
-    d_min_val = np.linalg.norm(d_min)
-    if d_min_val <= geometric.Re + geometric.ATM:
+    # 1. Earth + atmosphere blockage
+    if los_min_distance(r_leo, r_geo) <= _RE_M + _H_GRAZE_M:
         return False
 
-    # 2. GEO pointing to LEO
-    theta_geo = angle(d, r_geo) 
-    if theta_geo >= theta_geo_max:
+    # 2. GEO terminal: off-NADIR angle of the LEO seen from GEO
+    if angle(-d, -r_geo) >= visibility.theta_geo_max:
         return False
 
-    # 3. LEO pointing GEO
-    theta_leo = angle(-d, -r_leo)
-    if theta_leo >= theta_leo_max:
+    # 3. LEO terminal: off-ZENITH angle of the GEO seen from LEO
+    if angle(d, r_leo) >= visibility.theta_leo_max:
         return False
 
     # 4. Range
-    if np.linalg.norm(d) > max_range:
+    if np.linalg.norm(d) > _MAX_RANGE_M:
         return False
-
 
     return True
 
+
 def contact_leo_leo(r_a, r_b):
-    max_range = visibility.max_range
-
-     # 1. Earth blocking
-    d = r_a - r_b # distance from LEO to GEO 
-    t = -np.dot(r_a, d)/np.dot(d,d)
-    if t < 0:
-        d_min = np.linalg.norm(r_a)
-    elif t > 1:
-        d_min = np.linalg.norm(r_b)
-    else:
-        d_min = np.linalg.norm(np.cross(r_a, r_b)/np.dot(d,d))
-
-    if d_min <= geometric.Re + geometric.ATM:
+    """True if the LEO-LEO link is geometrically feasible."""
+    if los_min_distance(r_a, r_b) <= _RE_M + _H_GRAZE_M:
         return False
-
-     # 2. Range
-    if np.linalg.norm(d) > max_range:
+    if np.linalg.norm(r_b - r_a) > _MAX_RANGE_M:
         return False
-
     return True

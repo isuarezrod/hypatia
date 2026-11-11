@@ -78,26 +78,20 @@ def update_ns3_rate_properties(config_path, rate_properties):
 # Orbital radius
 def radius(sat, epoch_str, date_str):
     
-    # 1. Place the observer at the Earth's center (lat=0, lon=0, elevation=0)
-    observer = ephem.Observer()
-    observer.epoch = str(epoch_str).replace('-', '/')
-    observer.date = str(date_str).replace('-', '/')
-    observer.lat = 0
-    observer.lon = 0
-    observer.elevation = 0
-
-    # 2. Compute satellite position relative to observer
-    sat.compute(observer)
-
-    # 3. Extract Geocentric Right Ascension (RA), Declination (DEC), and Range (distance to Earth center)
-    # ra = float(sat.g_ra)       # Right Ascension in radians
-    # dec = float(sat.g_dec)     # Declination in radians
-    # r = float(sat.range)*10**(-3)       # Distance from observer/center in km
+    # Returns the GEOCENTRIC position vector in METRES (equatorial frame of date).
+    #
+    # NOTE: an ephem.Observer at lat=0, lon=0, elevation=0 is on the Earth's SURFACE
+    # (Gulf of Guinea), not at its centre, so sat.range is a topocentric slant range.
+    # Geocentric direction -> g_ra / g_dec; geocentric distance -> rebuilt from the
+    # sub-satellite point and the height above the WGS-84 ellipsoid (sat.elevation).
+    from satgen.distance_tools.distance_tools import geodetic2cartesian
 
     try:
+        sat.compute(str(date_str).replace('-', '/'), epoch=str(epoch_str).replace('-', '/'))
         ra = float(sat.g_ra)
         dec = float(sat.g_dec)
-        r = float(sat.range)
+        r = float(np.linalg.norm(geodetic2cartesian(
+            math.degrees(sat.sublat), math.degrees(sat.sublong), sat.elevation)))
     except RuntimeError as e:
         print(f"Error en satélite: {sat.name}")
         print(f"Época interna TLE del satélite (sat._epoch): {getattr(sat, '_epoch', 'N/A')}")

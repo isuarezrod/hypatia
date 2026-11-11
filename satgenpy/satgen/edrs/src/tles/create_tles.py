@@ -57,9 +57,21 @@ def eo_tles(sentinel):
     print("TLE file generated")
 
 
+def geo_mean_anomaly_for_longitude(lon_east_deg, raan_deg=0.0, argp_deg=0.0):
+    """
+    For a (near-)equatorial circular GEO the sub-satellite longitude at the epoch is
+        lon = RAAN + argp + M - GMST(epoch)
+    so the mean anomaly that puts the satellite over lon_east_deg is
+        M = lon + GMST(epoch) - RAAN - argp
+    """
+    gmst_deg = conf.epoch.sidereal_time("mean", "greenwich").deg
+    return (lon_east_deg + gmst_deg - raan_deg - argp_deg) % 360.0
+
+
 def edrs_tles():
-    # one orbit, two satellites: EDRS-A and EDRS-C
+    # one orbit, two satellites: EDRS-A (9 E) and EDRS-C (31 E)
     scenario_dir = os.path.dirname(os.path.abspath(__file__))
+    edrs_longitudes_deg = [9.0, 31.0]
 
     generate_tles_from_scratch_manual(
         filename_out=os.path.join(scenario_dir, "edcrs_tle.txt"),
@@ -72,7 +84,8 @@ def edrs_tles():
         arg_of_perigee_degree=0.0,
         mean_motion_rev_per_day=1.0027379,  # one rotation every sidereal day
         satellite_id_offset= geometric.leo_sat, # Fixed, all Sentinel constellations have 2 satellites
-        mean_anomaly_degree_list=[9, 31]
+        # NOT [9, 31]: the mean anomaly is measured in inertial space, the longitude in ECEF
+        mean_anomaly_degree_list=[geo_mean_anomaly_for_longitude(l) for l in edrs_longitudes_deg]
     )
 
 def merge_tle_files(file1, file2):
