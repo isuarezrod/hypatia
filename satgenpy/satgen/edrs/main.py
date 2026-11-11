@@ -12,7 +12,6 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 from sgp4.api import Satrec, jday
-from datetime import datetime # sgp4 works with julian days: jd, fr (julian integer, fraction part)
 
 from src.tles.create_tles import *
 from satgen.tles import read_tles
@@ -25,83 +24,32 @@ from src.simple_isls import *
 from satgen.isls import read_isls
 from satgen.dynamic_state import generate_dynamic_state
 
-# 1. TLEs
-# EO Satellite
-# Choose Copernicus constellation and satellite
-eo_sat = geometric.leo_sat
-print('Generating TLEs for LEO Constellation...')
-print('Choose Copernicus constellation to simulate, between the following options: Sentinel-1, Sentinel-2, Sentinel-3')
-sentinel = input()
-eo_tles(sentinel)
-
-print(f'Choose {sentinel} satellite: 1 or 2')
-sat_eo = int(input())
-leo_id = sat_id(sentinel, sat_eo)
-print(f"Copernicus Satellite ID:{leo_id}")
-
-# EDRS
-edrs_tles()
-
-tles_dir = os.path.join(os.path.dirname(__file__),"src", "tles")
-if sentinel == "Sentinel-1":
-    file1 = os.path.join(tles_dir, "sentinel1_tle.txt")
-elif sentinel == "Sentinel-2":
-    file1 = os.path.join(tles_dir, "sentinel2_tle.txt")
-elif sentinel == "Sentinel-3":
-    file1 = os.path.join(tles_dir, "sentinel3_tle.txt")
-
-print('Generating TLEs for GEO Constellation...')
-file2 = os.path.join(tles_dir, "edcrs_tle.txt")
-merge_tle_files(file1, file2)
-
-print(f'Choose EDRS satellite: 1 for EDRS-A or 2 for EDRS-C')
-sat_edrs = int(input()) + eo_sat
-geo_id = sat_id("edrs", sat_edrs)
-print(f"EDRS Satellite ID:{geo_id}")
-
+# 1. TLEs: every satellite listed in config.constellations (3 Sentinel constellations + EDRS)
+print("Generating TLEs...")
+tle_file = create_all_tles()
 
 # 2. Ground Stations
-# TODO : Review Hawaii ground station use and data
-base_dir = os.path.dirname(os.path.dirname(__file__)) # os.path lo que hace es subir niveles (file -> folder -> folder) 
+base_dir = os.path.dirname(os.path.dirname(__file__))  # satgenpy/satgen
 gs_file = os.path.join(base_dir, "ground_stations", "ground_stations.txt")
 gs_list = read_ground_stations_basic(gs_file)
 
-# Verification of TLEs (through sgp4 = orbit propagator w/perturbations)
-    # Steps: TLE -> Satrec -> sgp4
-    # Sat IDs in these TLEs are wrong because it is date is taken before merging
-
-filename = os.path.join(os.path.dirname(__file__),"src", "tles", "tle.txt")
-leo_tle1, leo_tle2 = read_sat_tle(filename, sentinel, sat_eo)
-geo_tle1, geo_tle2 = read_sat_tle(filename, "EDCRS", sat_edrs)
-
-leo = Satrec.twoline2rv(leo_tle1, leo_tle2) # satrec transforms tle strings into a propagable satellite
-geo = Satrec.twoline2rv(geo_tle1, geo_tle2)
-
-dt = conf.epoch.utc.datetime   # check the satellites at the simulated epoch
+# Quick sanity check of the TLEs with SGP4 at the epoch: distance from Earth's centre
+# (LEO ~ 7,000 km, GEO ~ 42,164 km)
+dt = conf.epoch.utc.datetime
 jd, fr = jday(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
+with open(tle_file) as f:
+    lines = f.read().splitlines()[1:]
+for i in range(0, len(lines), 3):
+    error, r, v = Satrec.twoline2rv(lines[i + 1], lines[i + 2]).sgp4(jd, fr)
+    if error != 0:
+        raise RuntimeError(f"SGP4 propagation error {error} for {lines[i]}")
+    print(f"  {lines[i]:<14} |r| = {distance(r, (0, 0, 0)):9.1f} km")
 
-e1, r_leo, v_leo = leo.sgp4(jd, fr)
-e2, r_geo, v_geo = geo.sgp4(jd, fr)
-
-if e1 != 0:
-    raise RuntimeError(f"LEO propagation error: {e1}")
-if e2 != 0:
-    raise RuntimeError(f"GEO propagation error: {e2}")
-
-d = distance(r_leo, r_geo)
-
-print(f"LEO: ({r_leo[0]:.2f}, {r_leo[1]:.2f}, {r_leo[2]:.2f})")
-print(f"GEO: ({r_geo[0]:.2f}, {r_geo[1]:.2f}, {r_geo[2]:.2f})")
-print(f"Distance [km]: {d:.2f}")
-        # LEO altitude: 160–2000 km
-        # GEO altitude: 35786 km
-
-# 3. Inter-satellite links lists
-leo_id_tot, _ = analyze_tle_file(file1)
-geo_id_tot, _ = analyze_tle_file(file2)
-
-list_isls_leo_geo = generate_leo_geo_isls(leo_id_tot, geo_id_tot)
-list_isls_leo_leo = generate_leo_leo_isls(leo_id_tot)
+# 3. Inter-satellite links lists (satellite indices: LEO 0..leo_sat-1, then GEO)
+leo_ids = list(range(geometric.leo_sat))
+geo_ids = list(range(geometric.leo_sat, geometric.sat_tot))
+list_isls_leo_geo = generate_leo_geo_isls(leo_ids, geo_ids)
+list_isls_leo_leo = generate_leo_leo_isls(leo_ids)
 
 # 4. Propagation
 # 4.1 Define paths and output directory

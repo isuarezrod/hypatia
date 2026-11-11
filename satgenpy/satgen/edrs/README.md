@@ -1,13 +1,13 @@
 # EDRS – Copernicus relay simulation (Hypatia)
 
-Simulates a Copernicus Sentinel satellite (LEO) talking to the European Data Relay System
-(EDRS-A at 9°E, EDRS-C at 31°E, GEO) through laser inter-satellite links (ISLs), and feeds the
-result into the ns-3 network simulator of Hypatia.
+Simulates the Copernicus Sentinel-1, -2 and -3 constellations (LEO, 2 satellites each) talking to the
+European Data Relay System (EDRS-A at 9°E, EDRS-C at 31°E, GEO) through laser inter-satellite links
+(ISLs), and feeds the result into the ns-3 network simulator of Hypatia.
 
 ```
 edrs/
 ├── main.py                 ← run this: builds the scenario, runs Hypatia + ns-3
-├── config.py               ← all parameters (time, geometry, data rates, visibility limits)
+├── config.py               ← all parameters (satellites, time, geometry, data rates, visibility limits)
 ├── src/
 │   ├── tles/create_tles.py ← generates the TLEs of Sentinel and EDRS
 │   ├── visibility.py       ← decides, at each instant, if a link is physically possible
@@ -29,24 +29,35 @@ All commands below are typed in the **Ubuntu (WSL) terminal**, inside
 python main.py
 ```
 
-It runs six stages, top to bottom.
+It asks nothing: everything comes from `config.py`. It runs six stages, top to bottom.
 
 ### 1. TLEs (which satellites, which orbits)
 
-`main.py` asks you three questions in the terminal:
+The satellites are listed in `config.py`, class `constellations`:
 
-| Prompt | Answer | Meaning |
-|---|---|---|
-| `Choose Copernicus constellation...` | `Sentinel-1`, `Sentinel-2` or `Sentinel-3` | which LEO constellation (2 satellites each) |
-| `Choose Sentinel-X satellite: 1 or 2` | `1` or `2` | which of the two Sentinels you focus on |
-| `Choose EDRS satellite: 1 for EDRS-A or 2 for EDRS-C` | `1` or `2` | which relay you focus on |
+```python
+class constellations:
+    # LEO: (name, inclination [deg], mean motion [rev/day], mean anomaly of each satellite [deg])
+    leo = [
+        ("Sentinel-1", 98.18, 14.60, [0, 180]),   # sats 0, 1
+        ("Sentinel-2", 98.62, 14.31, [0, 180]),   # sats 2, 3
+        ("Sentinel-3", 98.65, 14.26, [0, 140]),   # sats 4, 5
+    ]
+    # GEO: (name, longitude [deg East])
+    geo = [
+        ("EDRS-A", 9.0),                          # sat 6
+        ("EDRS-C", 31.0),                         # sat 7
+    ]
+```
 
-Behind the scenes:
-- `create_tles.eo_tles()` writes `src/tles/sentinelX_tle.txt` (2 LEO satellites, sun-synchronous orbit).
-- `create_tles.edrs_tles()` writes `src/tles/edcrs_tle.txt` (2 GEO satellites). The mean anomaly is
-  computed from the Earth's rotation angle at the epoch so EDRS-A really sits over 9°E and EDRS-C over 31°E.
-- `merge_tle_files()` joins both into `src/tles/tle.txt`: satellites 0–1 are the Sentinels, 2–3 the EDRS.
-- All TLEs share the epoch of `config.conf.epoch` (2026-01-01 00:00 UTC).
+To add or remove satellites, edit these lists; nothing else needs to change.
+`create_tles.create_all_tles()` then:
+- writes one file per group in `src/tles/` (`sentinel1_tle.txt`, `sentinel2_tle.txt`, `sentinel3_tle.txt`, `edrs_tle.txt`),
+- places each GEO over its longitude at the epoch (the mean anomaly includes the Earth's rotation angle),
+- merges them into `src/tles/tle.txt`. The order sets the satellite index used everywhere
+  (Hypatia, ns-3, validation, viewer): LEO groups first, then GEO.
+
+All TLEs share the epoch of `config.conf.epoch` (2026-01-01 00:00 UTC).
 
 ### 2. Ground stations
 
@@ -54,15 +65,14 @@ Reads `satgen/ground_stations/ground_stations.txt` (Redu, Weilheim, Matera, Hawa
 
 ### 3. Quick SGP4 sanity check
 
-Propagates the chosen Sentinel and EDRS satellite with SGP4 to one date and prints their positions and
-distance. It is only a print-out to see that the TLEs are sensible (LEO ≈ 7,000 km from Earth's centre,
-GEO ≈ 42,164 km).
+Propagates every satellite with SGP4 to the epoch and prints its distance from Earth's centre.
+It is only a print-out to see that the TLEs are sensible (LEO ≈ 7,000–7,200 km, GEO ≈ 42,164 km).
 
 ### 4. Candidate inter-satellite links
 
 `simple_isls.py` lists every link that *could* exist:
-- LEO–GEO: every Sentinel with every EDRS → `(0,2) (0,3) (1,2) (1,3)`
-- LEO–LEO: the two Sentinels with each other → `(0,1)`
+- LEO–GEO: every Sentinel with every EDRS → 6 × 2 = 12 links, e.g. `(0,6) (0,7) (1,6) …`
+- LEO–LEO: every pair of Sentinels → 15 links, e.g. `(0,1) (0,2) …`
 
 These are only candidates. Whether a link is actually usable at a given moment is decided in stage 5.
 
@@ -95,7 +105,7 @@ These are only candidates. Whether a link is actually usable at a given moment i
    previous time step. `fstate_0.txt` has the full table; later files are empty while nothing changes and
    get lines at hand-overs (a link opens/closes, a satellite rises/sets for a ground station).
    Format: `from_node,to_ground_station_node,next_hop,my_interface,next_hop_interface` (`-1` = unreachable).
-   Node ids: satellites `0..3`, ground stations `4..7` (Redu, Weilheim, Matera, Hawaii).
+   Node ids: satellites `0..7`, ground stations `8..11` (Redu, Weilheim, Matera, Hawaii).
 
 The limits used by `visibility.py` are in `config.py` (`geometric` and `visibility` classes).
 
@@ -162,9 +172,12 @@ time step, routes packets according to `fstate_*.txt`. So **a link only carries 
 
 ### Things to keep in mind
 
-- **Simulation time vs. contact windows.** `simulation.duration` = 3600 s covers the first LEO–GEO
-  window of Sentinel-1 1 (00:00–00:23 UTC) and of Sentinel-1 0 (00:34–01:12 UTC). All windows are in
-  `validation/results/report.md`.
+- **Simulation time vs. contact windows.** `simulation.duration` = 3600 s (1 h). Each Sentinel sees an
+  EDRS satellite for ~40 min of every ~100 min orbit; all windows are listed in
+  `validation/results/report.md` after running the validation.
+- **Orbital planes.** All groups are generated with RAAN = 0, so the three constellations share the same
+  orbital plane orientation and satellites with mean anomaly 0 start close to each other. The real
+  Sentinels fly in different planes (different local times of the ascending node).
 - **Data rates** (`communication` in `config.py`). In Hypatia each node's GSL rate is its **transmit** rate:
 
   | Node | Rate | Source |
@@ -183,8 +196,8 @@ time step, routes packets according to `fstate_*.txt`. So **a link only carries 
 
 ## Reading `validation/results/geometry_validation.png`
 
-One panel per satellite pair (`0-2` = Sentinel-1 0 ↔ EDRS-A, `0-3` = Sentinel-1 0 ↔ EDRS-C, … ,
-`0-1` = the two Sentinels). Horizontal axis: hours since the epoch.
+One panel per satellite pair, named by satellite index (`0-6` = Sentinel-1 0 ↔ EDRS-A,
+`0-7` = Sentinel-1 0 ↔ EDRS-C, … , `0-1` = the two Sentinel-1). Horizontal axis: hours since the epoch.
 
 | Element | What it is |
 |---|---|
@@ -201,9 +214,9 @@ side of the Earth as the GEO, the distance drops to ~35,000 km and the link is u
 When it goes behind the Earth, the distance grows to ~49,000 km and the Earth blocks the line of sight
 (no band). The pattern slowly changes over the day because the Earth rotates under the orbit.
 
-The `0-1` panel (LEO–LEO) has no bands: the two Sentinels are 180° apart on the same orbit, so the
-Earth is always between them. Its y-axis is zoomed in (≈ 14,143–14,148 km): the distance between them
-barely changes.
+The `0-1` panel (Sentinel-1 0 ↔ Sentinel-1 1) has no bands: the two satellites are 180° apart on the
+same orbit, so the Earth is always between them, and the distance barely changes (zoomed-in y-axis).
+Pairs from different Sentinel constellations do get LEO–LEO bands while they are close to each other.
 
 ---
 
@@ -225,7 +238,7 @@ explorer.exe viz/output/orbit_viewer.html      # opens it in your Windows browse
 **Adding the ns-3 links later.** The viewer reads links in this format (JSON list):
 
 ```json
-[{"a": 1, "b": 2, "kind": "LEO-GEO", "source": "ns3", "windows": [[0, 1380], [4844, 7306]]}]
+[{"a": 1, "b": 6, "kind": "LEO-GEO", "source": "ns3", "windows": [[0, 1380], [4844, 7306]]}]
 ```
 
 `a`, `b` = satellite indices as in `tle.txt`; `windows` = `[start_s, end_s]` intervals, in seconds from

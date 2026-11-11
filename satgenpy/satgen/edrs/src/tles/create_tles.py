@@ -2,59 +2,8 @@ import os
 from satgen.tles.generate_tles_from_scratch import *
 from satgen.edrs.config import *
 
-
-def eo_tles(sentinel):
-    # scenario_dir = "satgen/edrs/tles"
-    scenario_dir = os.path.dirname(os.path.abspath(__file__)) # Saves tle.txt file in folder where create_tles.py is in, in this way it doesnt depend 
-                                                              # on the directory, like it does on the line above
-    if sentinel == "Sentinel-1":
-        generate_tles_from_scratch_with_sgp(
-            # Copernicus Sentinel-1
-            filename_out = os.path.join(scenario_dir, "sentinel1_tle.txt"),
-            constellation_name="Sentinel-1",
-            num_orbits=1,
-            num_sats_per_orbit=2,
-            phase_diff=True,
-            inclination_degree=98.18,
-            eccentricity=0.0001,
-            arg_of_perigee_degree=0.0,
-            mean_motion_rev_per_day=14.60
-        )
-    elif sentinel == "Sentinel-2":
-        generate_tles_from_scratch_with_sgp(
-            # Copernicus Sentinel-2
-            filename_out = os.path.join(scenario_dir, "sentinel2_tle.txt"),
-            constellation_name="Sentinel-2",
-            num_orbits=1,
-            num_sats_per_orbit=2,
-            phase_diff=True,
-            inclination_degree=98.62,
-            eccentricity=0.0001,
-            arg_of_perigee_degree=0.0,
-            mean_motion_rev_per_day=14.31
-        )
-
-    elif sentinel == "Sentinel-3":
-        # correction: they are 140º apart
-        generate_tles_from_scratch_manual(
-            # Copernicus Sentinel-3
-            filename_out = os.path.join(scenario_dir, "sentinel3_tle.txt"),
-            constellation_name="Sentinel-3",
-            num_orbits=1,
-            num_sats_per_orbit=2,
-            phase_diff=True,
-            inclination_degree=98.65,
-            eccentricity=0.0001,
-            arg_of_perigee_degree=0.0,
-            mean_motion_rev_per_day=14.26,
-            satellite_id_offset=0,
-            mean_anomaly_degree_list=[0, 140]
-        )
-
-    else: 
-        print('Inserted constellation does not match any of Copernicus Sentinel LEO constellations')
-
-    print("TLE file generated")
+# All TLE files are written next to this script (src/tles/)
+scenario_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 def geo_mean_anomaly_for_longitude(lon_east_deg, raan_deg=0.0, argp_deg=0.0):
@@ -68,48 +17,66 @@ def geo_mean_anomaly_for_longitude(lon_east_deg, raan_deg=0.0, argp_deg=0.0):
     return (lon_east_deg + gmst_deg - raan_deg - argp_deg) % 360.0
 
 
-def edrs_tles():
-    # one orbit, two satellites: EDRS-A (9 E) and EDRS-C (31 E)
-    scenario_dir = os.path.dirname(os.path.abspath(__file__))
-    edrs_longitudes_deg = [9.0, 31.0]
+def create_all_tles():
+    """
+    Writes one TLE file per group (src/tles/<name>_tle.txt) for every entry in
+    config.constellations, then merges them into src/tles/tle.txt.
+    Returns the path of tle.txt.
+    """
+    files = []
+    offset = 0   # global satellite index of the first satellite of each group
 
+    # LEO groups (Sentinel-1, -2, -3, ...)
+    for name, inclination, mean_motion, mean_anomalies in constellations.leo:
+        filename = os.path.join(scenario_dir, name.lower().replace("-", "") + "_tle.txt")
+        generate_tles_from_scratch_manual(
+            filename_out=filename,
+            constellation_name=name,
+            num_orbits=1,
+            num_sats_per_orbit=len(mean_anomalies),
+            phase_diff=False,
+            inclination_degree=inclination,
+            eccentricity=0.0001,
+            arg_of_perigee_degree=0.0,
+            mean_motion_rev_per_day=mean_motion,
+            satellite_id_offset=offset,
+            mean_anomaly_degree_list=mean_anomalies,
+        )
+        files.append(filename)
+        offset += len(mean_anomalies)
+
+    # GEO relays (EDRS): one orbit, satellites placed over their longitude at the epoch
+    filename = os.path.join(scenario_dir, "edrs_tle.txt")
     generate_tles_from_scratch_manual(
-        filename_out=os.path.join(scenario_dir, "edcrs_tle.txt"),
-        constellation_name="EDCRS",
+        filename_out=filename,
+        constellation_name="EDRS",
         num_orbits=1,
-        num_sats_per_orbit= 2,
-        phase_diff=True,
-        inclination_degree= 0.01, # avoid singularity w/ sgp4
+        num_sats_per_orbit=len(constellations.geo),
+        phase_diff=False,
+        inclination_degree=0.01,            # avoid the i = 0 singularity in SGP4
         eccentricity=0.0,
         arg_of_perigee_degree=0.0,
-        mean_motion_rev_per_day=1.0027379,  # one rotation every sidereal day
-        satellite_id_offset= geometric.leo_sat, # Fixed, all Sentinel constellations have 2 satellites
-        # NOT [9, 31]: the mean anomaly is measured in inertial space, the longitude in ECEF
-        mean_anomaly_degree_list=[geo_mean_anomaly_for_longitude(l) for l in edrs_longitudes_deg]
+        mean_motion_rev_per_day=1.0027379,  # one revolution per sidereal day
+        satellite_id_offset=offset,
+        # NOT the longitude itself: the mean anomaly is inertial, the longitude is Earth-fixed
+        mean_anomaly_degree_list=[geo_mean_anomaly_for_longitude(lon) for _, lon in constellations.geo],
     )
+    files.append(filename)
 
-def merge_tle_files(file1, file2):
-    scenario_dir = os.path.dirname(os.path.abspath(__file__))
+    return merge_tle_files(files)
+
+
+def merge_tle_files(files):
+    """Merges Hypatia TLE files into src/tles/tle.txt."""
     output_file = os.path.join(scenario_dir, "tle.txt")
-    with open(file1, "r") as f1:
-        lines1 = f1.readlines()
-
-    with open(file2, "r") as f2:
-        lines2 = f2.readlines()
-
+    bodies = []
+    for filename in files:
+        with open(filename, "r") as f:
+            bodies += f.readlines()[1:]          # skip each file's header line
+    total_sats = len(bodies) // 3
     with open(output_file, "w") as fout:
-        # 'lines' are a list, we need to define variable 'header' to split the list1[1] = '1 2'
-        header1 = lines1[0].split()
-        header2 = lines2[0].split()
-
-        total_sats_1 = int(header1[0]) * int(header1[1])
-        total_sats_2 = int(header2[0]) * int(header2[1])
-        num_orbits = int(header1[0]) + int(header2[0])
-        total_sats = total_sats_1 
-        # total_sats_leo constellation = total_sats_geo constellation
-
-        fout.write("%d %d\n" % (num_orbits, total_sats))
-
-        # skip first line of both input files
-        fout.writelines(lines1[1:])
-        fout.writelines(lines2[1:])
+        # Header "<orbits> <satellites per orbit>": Hypatia and ns-3 only need orbits x sats = total
+        fout.write("%d 1\n" % total_sats)
+        fout.writelines(bodies)
+    print(f"TLE file with {total_sats} satellites written to {output_file}")
+    return output_file

@@ -25,15 +25,28 @@ class simulation:
     # The run always starts at conf.epoch (ns-3 starts at the TLE epoch, so no offset is supported).
     # To simulate a later window, move conf.epoch (the TLEs are regenerated with it).
 
+# Satellites to simulate (edit these lists to add/remove satellites)
+# Satellite index in Hypatia/ns-3 = order of appearance: LEO groups first, then GEO.
+class constellations:
+    # LEO: (name, inclination [deg], mean motion [rev/day], mean anomaly of each satellite [deg])
+    leo = [
+        ("Sentinel-1", 98.18, 14.60, [0, 180]),   # sats 0, 1
+        ("Sentinel-2", 98.62, 14.31, [0, 180]),   # sats 2, 3
+        ("Sentinel-3", 98.65, 14.26, [0, 140]),   # sats 4, 5  (S3A/S3B are 140 deg apart)
+    ]
+    # GEO: (name, longitude [deg East])
+    geo = [
+        ("EDRS-A", 9.0),                          # sat 6
+        ("EDRS-C", 31.0),                         # sat 7
+    ]
+
 # Geometry
 class geometric:
     Re = 6378.137         # km
     ATM = 100.0           # km
-    _, leo_sat = analyze_tle_file(os.path.join(tles_dir, "sentinel1_tle.txt"))
-    leo_sat = int(leo_sat)
-    _, geo_sat = analyze_tle_file(os.path.join(tles_dir, "edcrs_tle.txt"))
-    geo_sat = int(geo_sat)
-    sat_tot = leo_sat + geo_sat    
+    leo_sat = sum(len(c[3]) for c in constellations.leo)   # number of LEO satellites
+    geo_sat = len(constellations.geo)                      # number of GEO satellites
+    sat_tot = leo_sat + geo_sat
     gs_tot = get_num_ground_stations(os.path.join(gs_dir, "ground_stations", "ground_stations.txt"))
 
 # General configuration
@@ -74,7 +87,7 @@ class visibility: # datasheet parameters
 
 # ns-3 traffic: pings between ground stations to measure latency / outages through the relay.
 # Node ids in ns-3: satellites 0..n_sat-1, then ground stations (n_sat + gid).
-# Ground stations: 0 Redu, 1 Weilheim, 2 Matera, 3 Hawaii  ->  ns-3 ids 4, 5, 6, 7 (with 4 satellites).
+# Ground stations: 0 Redu, 1 Weilheim, 2 Matera, 3 Hawaii  ->  ns-3 ids 8, 9, 10, 11 (with 8 satellites).
 class ns3:
     enable_pingmesh = True
     pingmesh_interval_ns = 100000000            # one ping every 100 ms per pair
