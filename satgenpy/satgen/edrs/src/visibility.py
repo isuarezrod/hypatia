@@ -55,3 +55,23 @@ def contact_leo_leo(r_a, r_b):
     if np.linalg.norm(r_b - r_a) > _MAX_RANGE_M:
         return False
     return True
+
+
+def contact_gs_sat(ground_station, satellite, epoch_str, date_str):
+    """
+    Ground station <-> satellite link feasibility.
+    Returns (feasible, slant_range_m). Feasible if the satellite is above the ground station's
+    elevation mask (visibility.min_elevation_gs) and within visibility.max_gsl_length.
+    """
+    import ephem
+    observer = ephem.Observer()
+    observer.epoch = epoch_str
+    observer.date = date_str
+    observer.lat = str(ground_station["latitude_degrees_str"])
+    observer.lon = str(ground_station["longitude_degrees_str"])
+    observer.elevation = ground_station["elevation_m_float"]
+    satellite.compute(observer)
+    elevation_deg = np.degrees(float(satellite.alt))
+    slant_range_m = float(satellite.range)
+    feasible = (elevation_deg >= visibility.min_elevation_gs) and (slant_range_m <= visibility.max_gsl_length)
+    return feasible, slant_range_m

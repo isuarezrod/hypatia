@@ -83,8 +83,19 @@ These are only candidates. Whether a link is actually usable at a given moment i
    | Distance ≤ `max_range` | ✔ | ✔ |
 
    Only links that pass every check are added to the network graph for that instant.
-3. **Routing.** Hypatia computes the shortest paths through the graph and writes the forwarding
-   tables `src/output/fstate_<t_ns>.txt` (only the entries that changed since the previous step).
+3. **Ground-station links.** A ground station can use a satellite only if it is at least
+   `visibility.min_elevation_gs` (5°) above its horizon (`contact_gs_sat()` in `visibility.py`).
+   From Redu/Weilheim/Matera the EDRS satellites are always visible; Hawaii sees neither EDRS satellite,
+   only a Sentinel when it passes over.
+4. **Routing.** Hypatia computes the shortest paths through the graph and writes
+   `src/output/fstate_<t_ns>.txt` and `gsl_if_bandwidth_<t_ns>.txt`: **one pair of files per time step**,
+   so `duration / time_step` files of each (3600 s / 1 s = 3600).
+
+   **Why most `fstate_*.txt` are empty:** each file lists only the routes that **changed** since the
+   previous time step. `fstate_0.txt` has the full table; later files are empty while nothing changes and
+   get lines at hand-overs (a link opens/closes, a satellite rises/sets for a ground station).
+   Format: `from_node,to_ground_station_node,next_hop,my_interface,next_hop_interface` (`-1` = unreachable).
+   Node ids: satellites `0..3`, ground stations `4..7` (Redu, Weilheim, Matera, Hawaii).
 
 The limits used by `visibility.py` are in `config.py` (`geometric` and `visibility` classes).
 
@@ -123,8 +134,22 @@ The limits used by `visibility.py` are in `config.py` (`geometric` and `visibili
 ### 6. ns-3 files and simulation
 
 `main.py` copies everything ns-3 needs into `src/output/`:
-`tles.txt`, `ground_stations.txt`, `isls.txt`, `gsl_interfaces_info.txt`, `config_ns3.properties`
-(data rates are synchronised from `config.communication`), and then launches
+`tles.txt`, `ground_stations.txt`, `isls.txt`, `gsl_interfaces_info.txt`, and rebuilds
+`config_ns3.properties` from the template **on every run**, taking from `config.py`:
+
+| ns-3 key | from | meaning |
+|---|---|---|
+| `simulation_end_time_ns` | `simulation.duration` | ns-3 runs exactly as long as the Hypatia propagation |
+| `dynamic_state_update_interval_ns` | `simulation.time_step` | ns-3 reads a new `fstate_*` every Hypatia step |
+| `isl_data_rate_megabit_per_s` | `communication.isl_rate_mbps` | 1800 Mbit/s laser ISL |
+| `gsl_data_rate_megabit_per_s` | `communication.gsl_base_rate_mbps` | 10 Gbit/s scale; each node's real rate = scale × its fraction in `gsl_if_bandwidth_*` |
+| `pingmesh_*` | `ns3` class | pings Hawaii→Weilheim and Matera→Weilheim every 100 ms |
+
+Satellite positions inside ns-3 (used for propagation delays) come from the same `tles.txt` and epoch,
+so ns-3 and Hypatia see the satellites at the same place at the same time. The run always starts at
+`conf.epoch`; to simulate a later window, move `conf.epoch`.
+
+Then it launches
 
 ```
 waf --run "main_satnet --run_dir=<edrs>/src/output"
@@ -137,15 +162,22 @@ time step, routes packets according to `fstate_*.txt`. So **a link only carries 
 
 ### Things to keep in mind
 
-- **Simulation time vs. contact windows.** `simulation.duration` is 200 s. The first LEO–GEO window of
-  Sentinel 0 opens at ~00:34 UTC, of Sentinel 1 at 00:00 UTC (until ~00:23). Check
-  `validation/results/report.md` and choose a duration / offset that falls inside a window,
-  otherwise ns-3 will not see any ISL.
-- **`main.py` currently crashes before stage 5** (when it builds the GSL interface list) at `communication.ground_station_gsl_rate_mbps`: that
-  attribute does not exist in `config.py`. Add it to the `communication` class (the data rate you want
-  for ground-station interfaces).
-- The SGP4 check of stage 3 uses `datetime(2027, 1, 1)`, one year after the TLE epoch. Use
-  `conf.epoch` instead so it checks the simulated day.
+- **Simulation time vs. contact windows.** `simulation.duration` = 3600 s covers the first LEO–GEO
+  window of Sentinel-1 1 (00:00–00:23 UTC) and of Sentinel-1 0 (00:34–01:12 UTC). All windows are in
+  `validation/results/report.md`.
+- **Data rates** (`communication` in `config.py`). In Hypatia each node's GSL rate is its **transmit** rate:
+
+  | Node | Rate | Source |
+  |---|---|---|
+  | Sentinel → ground (X-band) | 520 Mbit/s | ESA Sentinel-1 mission summary (2 × 260 Mbit/s) |
+  | EDRS → ground (Ka feeder) | 1800 Mbit/s | ESA ARTES EDRS (1.8 Gbit/s download via Ka feeder link) |
+  | Ground station → satellite | 520 Mbit/s | modelling choice, see below |
+  | ISL (laser) | 1800 Mbit/s | EDRS LCT |
+
+  Ground station rate: ns-3 traffic in Hypatia can only start and end at ground stations, so the
+  source ground station stands in for the Sentinel payload and gets the Sentinel payload rate. The real
+  Sentinel uplink is 64 kbit/s (S-band telecommand); using it would cap every flow at 64 kbit/s.
+- **Generated files are not committed** (`src/output/.gitignore`): they are rebuilt by `main.py`.
 
 ---
 

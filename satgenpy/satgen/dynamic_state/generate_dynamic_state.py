@@ -31,7 +31,7 @@ from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 from .algorithm_paired_many_only_over_isls import algorithm_paired_many_only_over_isls
 from .algorithm_free_gs_one_sat_many_only_over_isls import algorithm_free_gs_one_sat_many_only_over_isls
 
-from satgen.edrs.src.visibility import contact_leo_geo, contact_leo_leo
+from satgen.edrs.src.visibility import contact_leo_geo, contact_leo_leo, contact_gs_sat
 from satgen.edrs.config import radius
 
 ##############################################################################################################################################
@@ -222,7 +222,7 @@ def generate_dynamic_state_at(
 
     if enable_verbose_logs:
         print("  > Total ISLs LEO-GEO..... " + str(len(list_isls_leo_geo)))
-        print("  > Total ISLs LEO-GEO..... " + str(len(list_isls_leo_leo)))
+        print("  > Total ISLs LEO-LEO..... " + str(len(list_isls_leo_leo)))
         print("  > Min. ISLs/satellite.... " + str(np.min(num_isls_per_sat)))
         print("  > Max. ISLs/satellite.... " + str(np.max(num_isls_per_sat)))
 
@@ -258,13 +258,15 @@ def generate_dynamic_state_at(
         # Find satellites in range
         satellites_in_range = []
         for sid in range(len(satellites)):
-            distance_m = distance_m_ground_station_to_satellite(
+            # MODIFIED: a GSL needs the satellite above the ground station's elevation mask
+            # (Earth blockage), not only a slant range below max_gsl_length_m.
+            feasible, distance_m = contact_gs_sat(
                 ground_station,
                 satellites[sid],
                 str(epoch),
                 str(time)
             )
-            if distance_m <= max_gsl_length_m: # if d < d_max, it adds the sat to the list and arista in the graph GLS
+            if feasible and distance_m <= max_gsl_length_m: # adds the sat to the list and the edge to the GSL graph
                 satellites_in_range.append((distance_m, sid))
                 sat_net_graph_all_with_only_gsls.add_edge(
                     sid, len(satellites) + ground_station["gid"], weight=distance_m

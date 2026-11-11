@@ -1,15 +1,23 @@
-simulation_end_time_ns=200000000000
+simulation_end_time_ns=SET_BY_MAIN_PY
 simulation_seed=123456789
-tcp_socket_type=TcpCubic
+tcp_socket_type=TcpNewReno
 
 satellite_network_dir=.
 satellite_network_routes_dir=.
-dynamic_state_update_interval_ns=1000000000
+dynamic_state_update_interval_ns=SET_BY_MAIN_PY
 
-isl_data_rate_megabit_per_s=1800.0
-gsl_data_rate_megabit_per_s=10000.0
+isl_data_rate_megabit_per_s=SET_BY_MAIN_PY
+gsl_data_rate_megabit_per_s=SET_BY_MAIN_PY
 isl_max_queue_size_pkts=100
 gsl_max_queue_size_pkts=100
 
 enable_isl_utilization_tracking=true
 isl_utilization_tracking_interval_ns=1000000000
+
+# Traffic. main.py sets the pingmesh keys from config.ns3.
+# TCP flows need a schedule file; to enable them add:
+#   enable_tcp_flow_scheduler=true
+#   tcp_flow_schedule_filename=schedule.csv
+#   tcp_flow_enable_logging_for_tcp_flow_ids=set(0)
+enable_tcp_flow_scheduler=false
+enable_pingmesh_scheduler=false

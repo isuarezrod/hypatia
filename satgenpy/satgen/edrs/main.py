@@ -77,7 +77,7 @@ geo_tle1, geo_tle2 = read_sat_tle(filename, "EDCRS", sat_edrs)
 leo = Satrec.twoline2rv(leo_tle1, leo_tle2) # satrec transforms tle strings into a propagable satellite
 geo = Satrec.twoline2rv(geo_tle1, geo_tle2)
 
-dt = datetime(2027, 1, 1, 0, 0, 0)
+dt = conf.epoch.utc.datetime   # check the satellites at the simulated epoch
 jd, fr = jday(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second)
 
 e1, r_leo, v_leo = leo.sgp4(jd, fr)
@@ -105,16 +105,15 @@ list_isls_leo_leo = generate_leo_leo_isls(leo_id_tot)
 
 # 4. Propagation
 # 4.1 Define paths and output directory
-output_dynamic_state_dir = "src/output"
 tle_file_path = os.path.join(os.path.dirname(__file__), "src", "tles", "tle.txt")
-gs_file_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ground stations", "ground_stations.txt")
+output_dynamic_state_dir = os.path.join(os.path.dirname(__file__), "src", "output")
 
-# 4.2. Configure time parameters
+# 4.2. Configure time parameters (single source of truth: config.simulation, also used for ns-3)
 epoch = conf.epoch
-simulation.duration = 200
-simulation_end_time_ns = simulation.duration * 1000000000
-simulation.time_step = 1000000000
-offset_ns = 0
+simulation_end_time_ns = int(simulation.duration * 1_000_000_000)
+offset_ns = 0   # ns-3 starts at the TLE epoch, so Hypatia must start there too
+print(f"Simulation: {simulation.duration} s, step {simulation.time_step / 1e9:g} s "
+      f"-> {simulation_end_time_ns // simulation.time_step} fstate files")
 
 # 4.3. Load input topology elements
 tles_info = read_tles(tle_file_path)
@@ -138,9 +137,13 @@ list_gsl_interfaces_info = (
 
 # 4.4. Range limits
 max_gsl_length_m = visibility.max_gsl_length
-max_isl_length_km = visibility.max_range
+max_isl_length_m = visibility.max_range * 1000   # km -> m (feasibility itself is decided in visibility.py)
 
-output_dynamic_state_dir = os.path.join(os.path.dirname(__file__), "src", "output")
+# 4.5. Remove dynamic-state files of previous runs (a shorter run would otherwise leave old files behind)
+os.makedirs(output_dynamic_state_dir, exist_ok=True)
+for f in os.listdir(output_dynamic_state_dir):
+    if f.startswith(("fstate_", "gsl_if_bandwidth_")) and f.endswith(".txt"):
+        os.remove(os.path.join(output_dynamic_state_dir, f))
 
 # 5. GENERATE DYNAMIC STATE FILES. Call generate_dynamic_state. 
 print("Generating dynamic state files...")
@@ -156,7 +159,7 @@ generate_dynamic_state (
     list_isls_leo_leo = list_isls_leo_leo ,
     list_gsl_interfaces_info= list_gsl_interfaces_info,
     max_gsl_length_m= max_gsl_length_m,
-    max_isl_length_m= max_isl_length_km,
+    max_isl_length_m= max_isl_length_m,
     dynamic_state_algorithm= "algorithm_free_one_only_over_isls",
     enable_verbose_logs= True
 )
@@ -197,23 +200,29 @@ dynamic_state_abs_dir = os.path.abspath(output_dynamic_state_dir)
 
 # Path to template config_ns3.properties
 # Typically found in satgenpy templates or another example scenario folder
-template_config_path = os.path.abspath(
-    os.path.join(current_dir, "..", ".." , "satgen", "edrs", "src","output","config_ns3.properties.template") # TODO: Adjust this path if the template is located elsewhere
-) 
+template_config_path = os.path.join(current_dir, "src", "output", "config_ns3.properties.template")
 destination_config_path = os.path.join(dynamic_state_abs_dir, "config_ns3.properties")
 
-# Copy the properties file to the output directory if it doesn't exist yet
-if not os.path.exists(destination_config_path):
-    print(f"Copying config_ns3.properties to {dynamic_state_abs_dir}...")
-    shutil.copyfile(template_config_path, destination_config_path)
+# Always rebuild config_ns3.properties from the template, so ns-3 runs over exactly the same
+# time span and time step as the Hypatia propagation above
+shutil.copyfile(template_config_path, destination_config_path)
 
-update_ns3_rate_properties(
-    destination_config_path,
-    {
-        "isl_data_rate_megabit_per_s": communication.isl_rate_mbps,
-        "gsl_data_rate_megabit_per_s": communication.gsl_base_rate_mbps,
-    }
-)
+ns3_properties = {
+    "simulation_end_time_ns": simulation_end_time_ns,
+    "dynamic_state_update_interval_ns": simulation.time_step,
+    "isl_data_rate_megabit_per_s": communication.isl_rate_mbps,
+    "gsl_data_rate_megabit_per_s": communication.gsl_base_rate_mbps,
+}
+if ns3.enable_pingmesh:
+    n_sat = len(satellites)
+    pairs = ", ".join(f"{n_sat + a}->{n_sat + b}" for a, b in ns3.pingmesh_pairs_gid)
+    ns3_properties.update({
+        "enable_pingmesh_scheduler": "true",
+        "pingmesh_interval_ns": ns3.pingmesh_interval_ns,
+        "pingmesh_endpoint_pairs": f"set({pairs})",
+    })
+update_ns3_properties(destination_config_path, ns3_properties)
+print(f"ns-3 config: {simulation.duration} s, update every {simulation.time_step / 1e9:g} s")
     
 waf_cmd = [
     waf_executable,
