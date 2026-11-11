@@ -22,6 +22,19 @@ GmatConsole -r validation/gmat/edrs_validation.script        # or open it in the
 python -m validation.validate_geometry --duration 86400 --step 10 --gmat validation/gmat/report_edrs.txt
 ```
 
+### GMAT on Windows, Python in WSL (Ubuntu)
+
+Put the GMAT files on the Windows drive so both sides can reach them. The generator detects WSL
+and writes the Windows path (`C:\...`) into the script automatically:
+
+```bash
+# WSL terminal
+python -m validation.make_gmat_script --out /mnt/c/Users/<you>/gmat_edrs
+# Windows: open C:\Users\<you>\gmat_edrs\edrs_validation.script in GMAT and Run
+# WSL terminal
+python -m validation.validate_geometry --gmat /mnt/c/Users/<you>/gmat_edrs/report_edrs.txt
+```
+
 ## Default tolerances and why
 
 | test | range | window edge | origin of the error |
