@@ -23,11 +23,12 @@
 from satgen.distance_tools import *
 from .read_ground_stations import *
 
-
+# Prepocessing / augmentation step, can load the extended version (cartesian x-y-z to the simpler version)
 def extend_ground_stations(filename_ground_stations_basic_in, filename_ground_stations_out):
     ground_stations = read_ground_stations_basic(filename_ground_stations_basic_in)
-    with open(filename_ground_stations_out, "w+") as f_out:
+    with open(filename_ground_stations_out, "w+") as f_out: # extended version = basic 5 elements ground statiion + x-y-z cartesian coordinates
         for ground_station in ground_stations:
+            # takes longitud, latitud and elevation and converts them into a cartesian coordinate vector
             cartesian = geodetic2cartesian(
                 float(ground_station["latitude_degrees_str"]),
                 float(ground_station["longitude_degrees_str"]),

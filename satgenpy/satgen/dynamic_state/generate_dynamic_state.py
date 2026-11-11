@@ -25,12 +25,23 @@ from astropy import units as u
 import math
 import networkx as nx
 import numpy as np
+# algorithm_* calls different algorithms that propagates the state 
 from .algorithm_free_one_only_gs_relays import algorithm_free_one_only_gs_relays
 from .algorithm_free_one_only_over_isls import algorithm_free_one_only_over_isls
 from .algorithm_paired_many_only_over_isls import algorithm_paired_many_only_over_isls
 from .algorithm_free_gs_one_sat_many_only_over_isls import algorithm_free_gs_one_sat_many_only_over_isls
 
+from satgen.edrs.src.visibility import contact_leo_geo, contact_leo_leo
+from satgen.edrs.config import radius
 
+##############################################################################################################################################
+##############################################################################################################################################
+# WARNING: Feasibility of links have been modified to inclued visibility.py
+##############################################################################################################################################
+##############################################################################################################################################
+
+
+# 1. Propagates dynamic state for t_simulation (dynamic state at a certain instant t from offset to simulation time end)
 def generate_dynamic_state(
         output_dynamic_state_dir,
         epoch,
@@ -39,7 +50,8 @@ def generate_dynamic_state(
         offset_ns,
         satellites,
         ground_stations,
-        list_isls,
+        list_isls_leo_geo,
+        list_isls_leo_leo,
         list_gsl_interfaces_info,
         max_gsl_length_m,
         max_isl_length_m,
@@ -67,7 +79,8 @@ def generate_dynamic_state(
             time_since_epoch_ns,
             satellites,
             ground_stations,
-            list_isls,
+            list_isls_leo_geo,
+            list_isls_leo_leo,
             list_gsl_interfaces_info,
             max_gsl_length_m,
             max_isl_length_m,
@@ -77,13 +90,15 @@ def generate_dynamic_state(
         )
 
 
+# 2. Dynamic state at one particular instant t
 def generate_dynamic_state_at(
         output_dynamic_state_dir,
         epoch,
         time_since_epoch_ns,
         satellites,
         ground_stations,
-        list_isls,
+        list_isls_leo_geo,
+        list_isls_leo_leo,    
         list_gsl_interfaces_info,
         max_gsl_length_m,
         max_isl_length_m,
@@ -96,7 +111,7 @@ def generate_dynamic_state_at(
               + "ns (= " + str(time_since_epoch_ns / 1e9) + " seconds)")
 
     #################################
-
+    # TOPOLOGY / GEOMETRIC RECONSTRUCTION
     if enable_verbose_logs:
         print("\nBASIC INFORMATION")
 
@@ -108,14 +123,14 @@ def generate_dynamic_state_at(
         print("  > Absolute time.......... " + str(time))
 
     # Graphs
-    sat_net_graph_only_satellites_with_isls = nx.Graph()
-    sat_net_graph_all_with_only_gsls = nx.Graph()
+    sat_net_graph_only_satellites_with_isls = nx.Graph() # 1st graph: satellites - ISL
+    sat_net_graph_all_with_only_gsls = nx.Graph()        # 2nd graph: satellites + ground stations - GSL
 
     # Information
-    for i in range(len(satellites)):
+    for i in range(len(satellites)): # Para ambos grafos, del índice 0 a i-th satellite son los satélites
         sat_net_graph_only_satellites_with_isls.add_node(i)
         sat_net_graph_all_with_only_gsls.add_node(i)
-    for i in range(len(satellites) + len(ground_stations)):
+    for i in range(len(satellites) + len(ground_stations)): # Solo para el grafo de GSL, del índice i+1 a j, son las estaciones de tierra
         sat_net_graph_all_with_only_gsls.add_node(i)
     if enable_verbose_logs:
         print("  > Satellites............. " + str(len(satellites)))
@@ -128,42 +143,92 @@ def generate_dynamic_state_at(
     if enable_verbose_logs:
         print("\nISL INFORMATION")
 
+    #######################################################################################################################################################
+    ################################################### MODIFIED PART TO INCLUDE VISIBLITY FUNCTION #######################################################
+    #######################################################################################################################################################
+
     # ISL edges
     total_num_isls = 0
     num_isls_per_sat = [0] * len(satellites)
     sat_neighbor_to_if = {}
-    for (a, b) in list_isls:
 
+    epoch_str = str(epoch)
+    date_str = str(time)
+
+    for (a, b) in list_isls_leo_geo:  # LEO-GEO ISLs must be physically feasible
         # ISLs are not permitted to exceed their maximum distance
         # TODO: Technically, they can (could just be ignored by forwarding state calculation),
         # TODO: but practically, defining a permanent ISL between two satellites which
         # TODO: can go out of distance is generally unwanted
-        sat_distance_m = distance_m_between_satellites(satellites[a], satellites[b], str(epoch), str(time))
-        if sat_distance_m > max_isl_length_m:
-            raise ValueError(
-                "The distance between two satellites (%d and %d) "
-                "with an ISL exceeded the maximum ISL length (%.2fm > %.2fm at t=%dns)"
-                % (a, b, sat_distance_m, max_isl_length_m, time_since_epoch_ns)
-            )
+        # sat_distance_m = distance_m_between_satellites(satellites[a], satellites[b], str(epoch), str(time))
+        # if sat_distance_m > max_isl_length_m:
+        #    raise ValueError(
+        #       "The distance between two satellites (%d and %d) "
+        #       "with an ISL exceeded the maximum ISL length (%.2fm > %.2fm at t=%dns)"
+        #      % (a, b, sat_distance_m, max_isl_length_m, time_since_epoch_ns)
+        #    )
 
         # Add to networkx graph
-        sat_net_graph_only_satellites_with_isls.add_edge(
-            a, b, weight=sat_distance_m
-        )
+        # sat_net_graph_only_satellites_with_isls.add_edge(
+        #    a, b, weight=sat_distance_m
+        # )
 
         # Interface mapping of ISLs
+        # sat_neighbor_to_if[(a, b)] = num_isls_per_sat[a]
+        # sat_neighbor_to_if[(b, a)] = num_isls_per_sat[b]
+        # num_isls_per_sat[a] += 1
+        # num_isls_per_sat[b] += 1
+        # total_num_isls += 1
+
+        r_leo = radius(satellites[a], epoch_str, date_str)
+        r_geo = radius(satellites[b], epoch_str, date_str)
+
+        sat_distance_m = distance_m_between_satellites(
+            satellites[a],
+            satellites[b],
+            epoch_str,
+            date_str
+        )
+
         sat_neighbor_to_if[(a, b)] = num_isls_per_sat[a]
         sat_neighbor_to_if[(b, a)] = num_isls_per_sat[b]
         num_isls_per_sat[a] += 1
         num_isls_per_sat[b] += 1
-        total_num_isls += 1
+
+        if contact_leo_geo(r_leo, r_geo):
+            sat_net_graph_only_satellites_with_isls.add_edge(a, b, weight=sat_distance_m)
+            total_num_isls += 1
+
+    for (a, b) in list_isls_leo_leo:  # LEO-LEO ISLs must be physically feasible
+        r_a = radius(satellites[a], epoch_str, date_str)
+        r_b = radius(satellites[b], epoch_str, date_str)
+
+        sat_distance_m = distance_m_between_satellites(
+            satellites[a],
+            satellites[b],
+            epoch_str,
+            date_str
+        )
+
+        sat_neighbor_to_if[(a, b)] = num_isls_per_sat[a]
+        sat_neighbor_to_if[(b, a)] = num_isls_per_sat[b]
+        num_isls_per_sat[a] += 1
+        num_isls_per_sat[b] += 1
+
+        if contact_leo_leo(r_a, r_b):
+            sat_net_graph_only_satellites_with_isls.add_edge(a, b, weight=sat_distance_m)
+            total_num_isls += 1
+
 
     if enable_verbose_logs:
-        print("  > Total ISLs............. " + str(len(list_isls)))
+        print("  > Total ISLs LEO-GEO..... " + str(len(list_isls_leo_geo)))
+        print("  > Total ISLs LEO-GEO..... " + str(len(list_isls_leo_leo)))
         print("  > Min. ISLs/satellite.... " + str(np.min(num_isls_per_sat)))
         print("  > Max. ISLs/satellite.... " + str(np.max(num_isls_per_sat)))
 
-    #################################
+    #######################################################################################################################################################
+    #######################################################################################################################################################
+    #######################################################################################################################################################
 
     if enable_verbose_logs:
         print("\nGSL INTERFACE INFORMATION")
@@ -199,7 +264,7 @@ def generate_dynamic_state_at(
                 str(epoch),
                 str(time)
             )
-            if distance_m <= max_gsl_length_m:
+            if distance_m <= max_gsl_length_m: # if d < d_max, it adds the sat to the list and arista in the graph GLS
                 satellites_in_range.append((distance_m, sid))
                 sat_net_graph_all_with_only_gsls.add_edge(
                     sid, len(satellites) + ground_station["gid"], weight=distance_m
@@ -214,7 +279,7 @@ def generate_dynamic_state_at(
         print("  > Max. satellites in range... " + str(np.max(ground_station_num_in_range)))
 
     #################################
-
+    # FORWARDING / ROUTING
     #
     # Call the dynamic state algorithm which:
     #

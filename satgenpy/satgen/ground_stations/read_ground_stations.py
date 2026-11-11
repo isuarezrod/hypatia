@@ -21,6 +21,10 @@
 # SOFTWARE.
 
 
+# Reads ground stations:
+    # 1. read_ground_station_basic = simpler 5-colums version
+    # 2. read_ground_station_extended = 8-column version that includes precomputed cartesian coordinates
+
 def read_ground_stations_basic(filename_ground_stations_basic):
     """
     Reads ground stations from the input file.

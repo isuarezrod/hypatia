@@ -22,7 +22,7 @@
 
 import math
 import ephem
-from geopy.distance import great_circle
+from geopy.distance import great_circle # GCD to calculate minimum distances in a sphere
 
 
 def distance_m_between_satellites(sat1, sat2, epoch_str, date_str):
@@ -46,10 +46,12 @@ def distance_m_between_satellites(sat1, sat2, epoch_str, date_str):
     observer.elevation = 0
 
     # Calculate the relative location of the satellites to this observer
+    # this is donde w/ ephem library: how the sat are seen by the observer in that epoch
     sat1.compute(observer)
     sat2.compute(observer)
 
     # Calculate the angle observed by the observer to the satellites (this is done because the .compute() calls earlier)
+        # this is donde w/ ephem library: angle between two objects seen from the observer pov
     angle_radians = float(repr(ephem.separation(sat1, sat2)))
 
     # Now we have a triangle with three knows:
@@ -61,7 +63,7 @@ def distance_m_between_satellites(sat1, sat2, epoch_str, date_str):
     # c^2 = a^2 + b^2 - 2 * a * b * cos(C)
     #
     # This gives us side c, the distance between the two satellites
-    return math.sqrt(sat1.range ** 2 + sat2.range ** 2 - (2 * sat1.range * sat2.range * math.cos(angle_radians)))
+    return (math.sqrt(sat1.range ** 2 + sat2.range ** 2 - (2 * sat1.range * sat2.range * math.cos(angle_radians))))
 
 
 def distance_m_ground_station_to_satellite(ground_station, satellite, epoch_str, date_str):
@@ -91,7 +93,7 @@ def distance_m_ground_station_to_satellite(ground_station, satellite, epoch_str,
     return satellite.range
 
 
-def geodesic_distance_m_between_ground_stations(ground_station_1, ground_station_2):
+def geodesic_distance_m_between_ground_stations(ground_station_1, ground_station_2): # ARCO DE LA CIRCUNFERENCIA
     """
     Calculate the geodesic distance between two ground stations.
 
@@ -111,7 +113,7 @@ def geodesic_distance_m_between_ground_stations(ground_station_1, ground_station
     ).m
 
 
-def straight_distance_m_between_ground_stations(ground_station_1, ground_station_2):
+def straight_distance_m_between_ground_stations(ground_station_1, ground_station_2): # CUERDA DE LA CIRCUNFERENCIA
     """
     Calculate the straight distance between two ground stations (goes through the Earth)
 
@@ -149,7 +151,7 @@ def create_basic_ground_station_for_satellite_shadow(satellite, epoch_str, date_
     :return: Basic ground station
     """
 
-    satellite.compute(date_str, epoch=epoch_str)
+    satellite.compute(date_str, epoch=epoch_str) # updates satellite position for that instant
 
     return {
         "gid": -1,
@@ -168,7 +170,7 @@ def geodetic2cartesian(lat_degrees, lon_degrees, ele_m):
     :param lon_degrees: Longitude in degrees (float)
     :param ele_m:  Elevation in meters
 
-    :return: Cartesian coordinate as 3-tuple of (x, y, z)
+    :return: Cartesian coordinate as 3-tuple of (x, y, z) where x,y: ecuatorial plane, z: polar axis
     """
 
     #

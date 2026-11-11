@@ -23,7 +23,7 @@
 from exputil import parse_positive_int
 
 
-def read_isls(filename_isls, num_satellites):
+def read_isls(filename_isls, num_satellites): # reads text file in where each line describes one link between two satellites
     """
     Read ISLs file into a list of undirected edges
 

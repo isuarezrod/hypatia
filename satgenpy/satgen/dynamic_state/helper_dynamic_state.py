@@ -25,13 +25,13 @@ from satgen.ground_stations import *
 from satgen.tles import *
 from satgen.interfaces import *
 from .generate_dynamic_state import generate_dynamic_state
-import os
+import os # creates directories
 import math
 from multiprocessing.dummy import Pool as ThreadPool
 
 
 def worker(args):
-
+    # pool.map(...) from import Pool usually sends one object in every task, so it packs all arguments in one 'args'
     # Extract arguments
     (
         output_dynamic_state_dir,
@@ -49,7 +49,7 @@ def worker(args):
         print_logs
      ) = args
 
-    # Generate dynamic state
+    # Generate dynamic state (for a time subinterval)
     generate_dynamic_state(
         output_dynamic_state_dir,
         epoch,
@@ -75,6 +75,14 @@ def help_dynamic_state(
         output_generated_data_dir, num_threads, name, time_step_ms, duration_s,
         max_gsl_length_m, max_isl_length_m, dynamic_state_algorithm, print_logs
 ):
+
+    # help_dynamic_state:
+    # 1. Creates output files directory
+    # 2. Transforms duration and time step to ns
+    # 3. Calculates time steps
+    # 4. Allocates total time steps in threads ('packages') (computationally more efficient and avoid interferences/bugs due to shared objects)
+    # 5. For each thread, gets inputs (distance, visibility...), calculates the interval and packs arguments
+    # 6. Runs all threads, each calls generate_dynamic_state(...)
 
     # Directory
     output_dynamic_state_dir = output_generated_data_dir + "/" + name + "/dynamic_state_" + str(time_step_ms) \

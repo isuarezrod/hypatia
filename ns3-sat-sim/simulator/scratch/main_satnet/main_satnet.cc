@@ -64,6 +64,11 @@ int main(int argc, char *argv[]) {
     // Setting socket type
     Config::SetDefault ("ns3::TcpL4Protocol::SocketType", StringValue ("ns3::" + basicSimulation->GetConfigParamOrFail("tcp_socket_type")));
 
+    /////////////////////////////////////////////////
+    // Set the data rate for Ka-band downlink NetDevices on the GEO satellite nodes
+    //Config::SetDefault("ns3::PointToPointNetDevice::DataRate", StringValue("1.8Gbps"));
+    /////////////////////////////////////////////////
+
     // Optimize TCP
     TcpOptimizer::OptimizeBasic(basicSimulation);
 
